@@ -208,7 +208,7 @@ resource "kubernetes_persistent_volume_claim" "home" {
       "com.coder.user.username"  = data.coder_workspace.me.owner
     }
     annotations = {
-      "com.coder.user.email" = data.coder_workspace.me.owner_email
+      "com.coder.user.email" = data.coder_workspace.me.email
     }
   }
   wait_until_bound = false
@@ -239,7 +239,7 @@ resource "kubernetes_pod" "main" {
       "com.coder.user.username"  = data.coder_workspace.me.owner
     }
     annotations = {
-      "com.coder.user.email" = data.coder_workspace.me.owner_email
+      "com.coder.user.email" = data.coder_workspace.me.email
     }
   }
   spec {
