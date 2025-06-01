@@ -12,7 +12,6 @@ terraform {
 }
 
 provider "coder" {
-  feature_use_managed_variables = true
 }
 
 variable "use_kubeconfig" {
@@ -192,6 +191,7 @@ resource "kubernetes_pod" "main" {
     }
     container {
       name              = "dev"
+      # renovate: datasource=docker depName=ghcr.io/frantche/coder-full versioning=docker
       image             = "ghcr.io/frantche/coder-full:20250427-1117"
       image_pull_policy = "Always"
       command           = ["sh", "-c", coder_agent.main.init_script]
