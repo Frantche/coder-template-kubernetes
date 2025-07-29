@@ -36,6 +36,7 @@ jobs:
           url: https://coder.frantchenco.page
           name: ${{ steps.latest_commit.outputs.hash }}
           message: ${{ steps.commit_title.outputs.title }}
+          coder_session_token: ${{ secrets.CODER_SESSION_TOKEN }}
           dry_run: true
 
       - name: Update Coder Template on main
