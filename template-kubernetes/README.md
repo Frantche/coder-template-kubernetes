@@ -96,3 +96,41 @@ resource "coder_agent" "main" {
 `code-server` is installed via the `startup_script` argument in the `coder_agent`
 resource block. The `coder_app` resource is defined to access `code-server` through
 the dashboard UI over `localhost:13337`.
+
+## Testing
+
+This template includes comprehensive CI/CD testing to ensure quality and reliability:
+
+### Local Testing
+
+Run the validation script to test the template locally:
+
+```bash
+./validate.sh
+```
+
+This script will:
+- Check Terraform formatting
+- Initialize and validate the Terraform configuration
+- Clean up temporary files
+
+### CI/CD Pipeline
+
+The GitHub Actions workflow includes:
+
+1. **Terraform Validation** - Runs on all PRs and pushes
+   - Checks Terraform formatting with `terraform fmt -check`
+   - Initializes providers with `terraform init`
+   - Validates configuration with `terraform validate`
+
+2. **Template Testing** - Runs on pull requests only
+   - Creates a temporary test template in the Coder instance
+   - Verifies template creation and parameter accessibility
+   - Creates a test workspace to validate the template works
+   - Automatically cleans up test resources (template and workspace)
+
+3. **Template Updates** - Production updates
+   - Dry-run on pull requests to preview changes
+   - Actual template updates on main branch merges
+
+All test resources are automatically cleaned up, even if tests fail, to prevent accumulation of test templates and workspaces.

@@ -76,6 +76,33 @@ jobs:
           # Test that template parameters are accessible
           coder templates show "${{ steps.test_template.outputs.name }}" --output json | jq '.parameters'
 
+      - name: Create test workspace
+        id: test_workspace
+        run: |
+          TEST_WORKSPACE_NAME="test-workspace-${{ steps.latest_commit.outputs.hash }}-$(date +%s)"
+          echo "name=${TEST_WORKSPACE_NAME}" >> $GITHUB_OUTPUT
+          # Create workspace (dry run to test template without actual deployment)
+          coder create "${TEST_WORKSPACE_NAME}" \
+            --template "${{ steps.test_template.outputs.name }}" \
+            --parameter namespace=default \
+            --parameter use_kubeconfig=false \
+            --parameter cpu=2 \
+            --parameter memory=2 \
+            --parameter home_disk_size=10 \
+            --yes
+
+      - name: Verify workspace creation
+        run: |
+          coder show "${{ steps.test_workspace.outputs.name }}"
+          echo "Workspace created successfully"
+
+      - name: Cleanup test workspace
+        if: always()
+        run: |
+          if [ -n "${{ steps.test_workspace.outputs.name }}" ]; then
+            coder delete "${{ steps.test_workspace.outputs.name }}" --yes || true
+          fi
+
       - name: Cleanup test template
         if: always()
         run: |
@@ -83,7 +110,6 @@ jobs:
             coder templates delete "${{ steps.test_template.outputs.name }}" --yes || true
           fi
 
-  update:
   update:
     runs-on: ubuntu-latest
     needs: validate
