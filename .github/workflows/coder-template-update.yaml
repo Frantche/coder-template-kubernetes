@@ -1,153 +1,63 @@
-name: Update Coder Template
+name: Test and Publish Coder Template
 
 on:
-  pull_request:
-    branches:
-      - main
   push:
     branches:
       - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
 
 jobs:
-  validate:
+  test-and-publish:
     runs-on: ubuntu-latest
+    env:
+      TEMPLATE_NAME: "kubernetes"
     steps:
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v2
         with:
-          terraform_version: "~1.0"
+          terraform_version: latest
 
-      - name: Terraform Format Check
-        run: terraform fmt -check
-        working-directory: template-kubernetes
+      - name: Set up Coder CLI
+        uses: coder/setup-action@v1
+        with:
+          access_url: "https://coder.frantchenco.page"
+          coder_session_token: ${{ secrets.CODER_SESSION_TOKEN }}
 
-      - name: Terraform Init
-        run: terraform init
-        working-directory: template-kubernetes
-
-      - name: Terraform Validate
+      - name: Validate Terraform template
         run: terraform validate
         working-directory: template-kubernetes
 
-  test:
-    runs-on: ubuntu-latest
-    needs: validate
-    if: github.event_name == 'pull_request'
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - name: Get short commit SHA to use as template version name
+        id: name
+        run: echo "version_name=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
 
-      - name: Get latest commit hash
-        id: latest_commit
-        run: echo "hash=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+      - name: Get latest commit title to use as template version description
+        id: message
+        run: echo "pr_title=$(git log --format=%s -n 1 ${{ github.sha }})" >> $GITHUB_OUTPUT
 
-      - name: Get commit title
-        id: commit_title
-        run: echo "title=$(git log -1 --pretty=%s)" >> $GITHUB_OUTPUT
-
-      - name: Install Coder CLI
+      - name: Push template to Coder
         run: |
-          curl -fsSL https://coder.com/install.sh | sh
-          sudo mv ./coder /usr/local/bin/coder
+          cd template-kubernetes
+          coder templates push $TEMPLATE_NAME --activate=false --name ${{ steps.name.outputs.version_name }} --message "${{ steps.message.outputs.pr_title }}" --yes
 
-      - name: Login to Coder
-        run: |
-          coder login https://coder.frantchenco.page --token "${{ secrets.CODER_SESSION_TOKEN }}"
-
-      - name: Create test template
-        id: test_template
-        run: |
-          TEST_TEMPLATE_NAME="test-kubernetes-${{ steps.latest_commit.outputs.hash }}-$(date +%s)"
-          echo "name=${TEST_TEMPLATE_NAME}" >> $GITHUB_OUTPUT
-          coder templates create "${TEST_TEMPLATE_NAME}" \
-            --directory template-kubernetes \
-            --message "Test template for PR #${{ github.event.number }}: ${{ steps.commit_title.outputs.title }}"
-
-      - name: Verify template creation
-        run: |
-          coder templates show "${{ steps.test_template.outputs.name }}"
-          echo "Template created successfully"
-
-      - name: Test template parameters
-        run: |
-          # Test that template parameters are accessible
-          coder templates show "${{ steps.test_template.outputs.name }}" --output json | jq '.parameters'
-
-      - name: Create test workspace
-        id: test_workspace
-        run: |
-          TEST_WORKSPACE_NAME="test-workspace-${{ steps.latest_commit.outputs.hash }}-$(date +%s)"
-          echo "name=${TEST_WORKSPACE_NAME}" >> $GITHUB_OUTPUT
-          # Create workspace (dry run to test template without actual deployment)
-          coder create "${TEST_WORKSPACE_NAME}" \
-            --template "${{ steps.test_template.outputs.name }}" \
-            --parameter namespace=default \
-            --parameter use_kubeconfig=false \
-            --parameter cpu=2 \
-            --parameter memory=2 \
-            --parameter home_disk_size=10 \
-            --yes
-
-      - name: Verify workspace creation
-        run: |
-          coder show "${{ steps.test_workspace.outputs.name }}"
-          echo "Workspace created successfully"
-
-      - name: Cleanup test workspace
-        if: always()
-        run: |
-          if [ -n "${{ steps.test_workspace.outputs.name }}" ]; then
-            coder delete "${{ steps.test_workspace.outputs.name }}" --yes || true
-          fi
-
-      - name: Cleanup test template
-        if: always()
-        run: |
-          if [ -n "${{ steps.test_template.outputs.name }}" ]; then
-            coder templates delete "${{ steps.test_template.outputs.name }}" --yes || true
-          fi
-
-  update:
-    runs-on: ubuntu-latest
-    needs: validate
-    permissions:
-      # only needed if your action pushes commits, etc.
-      contents: write
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Get latest commit hash
-        id: latest_commit
-        run: echo "hash=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
-
-      - name: Get commit title
-        id: commit_title
-        run: echo "title=$(git log -1 --pretty=%s)" >> $GITHUB_OUTPUT
-
-      - name: Dry‑run update on PR
+      - name: Create a test workspace and validate template
         if: github.event_name == 'pull_request'
-        uses: matifali/update-coder-template@v3
-        with:
-          id: kubernetes
-          dir: template-kubernetes
-          url: https://coder.frantchenco.page
-          name: ${{ steps.latest_commit.outputs.hash }}
-          message: ${{ steps.commit_title.outputs.title }}
-          coder_session_token: ${{ secrets.CODER_SESSION_TOKEN }}
-          dry_run: true
+        run: |
+          coder create -t $TEMPLATE_NAME --template-version ${{ steps.name.outputs.version_name }} test-${{ steps.name.outputs.version_name }} --parameter namespace=default --parameter use_kubeconfig=false --parameter cpu=2 --parameter memory=2 --parameter home_disk_size=10 --yes
+          # Verify workspace was created successfully
+          coder show test-${{ steps.name.outputs.version_name }}
 
-      - name: Update Coder Template on main
-        if: github.event_name == 'push'
-        uses: matifali/update-coder-template@v3
-        with:
-          id: kubernetes
-          dir: template-kubernetes
-          url: https://coder.frantchenco.page
-          name: ${{ steps.latest_commit.outputs.hash }}
-          message: ${{ steps.commit_title.outputs.title }}
-          coder_session_token: ${{ secrets.CODER_SESSION_TOKEN }}
+      - name: Delete the test workspace
+        if: always() && github.event_name == 'pull_request'
+        run: coder delete test-${{ steps.name.outputs.version_name }} --yes
+
+      - name: Promote template version
+        if: success() && github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          coder template version promote --template=$TEMPLATE_NAME --template-version=${{ steps.name.outputs.version_name }} --yes
