@@ -29,7 +29,15 @@ jobs:
           access_url: "https://coder.frantchenco.page"
           coder_session_token: ${{ secrets.CODER_SESSION_TOKEN }}
 
+      - name: Terraform lint and format check (PR only)
+        if: github.event_name == 'pull_request'
+        run: |
+          terraform fmt -check -diff
+          terraform validate
+        working-directory: template-kubernetes
+
       - name: Validate Terraform template
+        if: github.event_name == 'push'
         run: terraform validate
         working-directory: template-kubernetes
 
@@ -46,18 +54,26 @@ jobs:
           cd template-kubernetes
           coder templates push $TEMPLATE_NAME --activate=false --name ${{ steps.name.outputs.version_name }} --message "${{ steps.message.outputs.pr_title }}" --yes
 
-      - name: Create a test workspace and validate template
+      - name: Test template deployment with temporary workspace (PR only)
         if: github.event_name == 'pull_request'
         run: |
-          coder create -t $TEMPLATE_NAME --template-version ${{ steps.name.outputs.version_name }} test-${{ steps.name.outputs.version_name }} --parameter namespace=default --parameter use_kubeconfig=false --parameter cpu=2 --parameter memory=2 --parameter home_disk_size=10 --yes
+          # Create temporary workspace with commit SHA for testing
+          WORKSPACE_NAME="test-${{ steps.name.outputs.version_name }}"
+          echo "Creating temporary workspace: $WORKSPACE_NAME"
+          coder create -t $TEMPLATE_NAME --template-version ${{ steps.name.outputs.version_name }} $WORKSPACE_NAME --parameter namespace=default --parameter use_kubeconfig=false --parameter cpu=2 --parameter memory=2 --parameter home_disk_size=10 --yes
           # Verify workspace was created successfully
-          coder show test-${{ steps.name.outputs.version_name }}
+          echo "Verifying workspace deployment..."
+          coder show $WORKSPACE_NAME
 
-      - name: Delete the test workspace
+      - name: Cleanup test workspace (PR only)
         if: always() && github.event_name == 'pull_request'
-        run: coder delete test-${{ steps.name.outputs.version_name }} --yes
+        run: |
+          WORKSPACE_NAME="test-${{ steps.name.outputs.version_name }}"
+          echo "Cleaning up temporary workspace: $WORKSPACE_NAME"
+          coder delete $WORKSPACE_NAME --yes
 
-      - name: Promote template version
+      - name: Deploy new version (main branch only)
         if: success() && github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: |
+          echo "Promoting template version ${{ steps.name.outputs.version_name }} to production"
           coder template version promote --template=$TEMPLATE_NAME --template-version=${{ steps.name.outputs.version_name }} --yes
