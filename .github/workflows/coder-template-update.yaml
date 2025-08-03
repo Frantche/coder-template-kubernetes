@@ -9,8 +9,84 @@ on:
       - main
 
 jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "~1.0"
+
+      - name: Terraform Format Check
+        run: terraform fmt -check
+        working-directory: template-kubernetes
+
+      - name: Terraform Init
+        run: terraform init
+        working-directory: template-kubernetes
+
+      - name: Terraform Validate
+        run: terraform validate
+        working-directory: template-kubernetes
+
+  test:
+    runs-on: ubuntu-latest
+    needs: validate
+    if: github.event_name == 'pull_request'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Get latest commit hash
+        id: latest_commit
+        run: echo "hash=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+
+      - name: Get commit title
+        id: commit_title
+        run: echo "title=$(git log -1 --pretty=%s)" >> $GITHUB_OUTPUT
+
+      - name: Install Coder CLI
+        run: |
+          curl -fsSL https://coder.com/install.sh | sh
+          sudo mv ./coder /usr/local/bin/coder
+
+      - name: Login to Coder
+        run: |
+          coder login https://coder.frantchenco.page --token "${{ secrets.CODER_SESSION_TOKEN }}"
+
+      - name: Create test template
+        id: test_template
+        run: |
+          TEST_TEMPLATE_NAME="test-kubernetes-${{ steps.latest_commit.outputs.hash }}-$(date +%s)"
+          echo "name=${TEST_TEMPLATE_NAME}" >> $GITHUB_OUTPUT
+          coder templates create "${TEST_TEMPLATE_NAME}" \
+            --directory template-kubernetes \
+            --message "Test template for PR #${{ github.event.number }}: ${{ steps.commit_title.outputs.title }}"
+
+      - name: Verify template creation
+        run: |
+          coder templates show "${{ steps.test_template.outputs.name }}"
+          echo "Template created successfully"
+
+      - name: Test template parameters
+        run: |
+          # Test that template parameters are accessible
+          coder templates show "${{ steps.test_template.outputs.name }}" --output json | jq '.parameters'
+
+      - name: Cleanup test template
+        if: always()
+        run: |
+          if [ -n "${{ steps.test_template.outputs.name }}" ]; then
+            coder templates delete "${{ steps.test_template.outputs.name }}" --yes || true
+          fi
+
+  update:
   update:
     runs-on: ubuntu-latest
+    needs: validate
     permissions:
       # only needed if your action pushes commits, etc.
       contents: write
