@@ -37,12 +37,11 @@ jobs:
           terraform validate
         working-directory: template-kubernetes
 
-      - name: Get branch name and commit SHA
+      - name: Get commit SHA
         id: vars
         run: |
-          BRANCH_NAME="${{ github.head_ref }}"
           COMMIT_SHA="$(git rev-parse --short HEAD)"
-          TEMPLATE_SUFFIX="ci-${BRANCH_NAME}-${COMMIT_SHA}"
+          TEMPLATE_SUFFIX="ci-${COMMIT_SHA}"
           echo "template_suffix=${TEMPLATE_SUFFIX}" >> $GITHUB_OUTPUT
           echo "commit_sha=${COMMIT_SHA}" >> $GITHUB_OUTPUT
 
@@ -50,14 +49,14 @@ jobs:
         id: message
         run: echo "pr_title=$(git log --format=%s -n 1 ${{ github.sha }})" >> $GITHUB_OUTPUT
 
-      - name: Push template to coder with name suffix with ci-branch_name-commit-sha
+      - name: Push template to coder with name suffix with ci-short_commit_sha
         run: |
           cd template-kubernetes
           TEMPLATE_NAME_WITH_SUFFIX="${TEMPLATE_NAME}-${{ steps.vars.outputs.template_suffix }}"
           echo "Pushing template: ${TEMPLATE_NAME_WITH_SUFFIX}"
           coder templates push ${TEMPLATE_NAME_WITH_SUFFIX} --activate=false --name ${{ steps.vars.outputs.commit_sha }} --message "${{ steps.message.outputs.pr_title }}" --yes
 
-      - name: Deploy a workspace with suffix with ci-branch_name-commit-sha
+      - name: Deploy a workspace with suffix with ci-short_commit_sha
         run: |
           TEMPLATE_NAME_WITH_SUFFIX="${TEMPLATE_NAME}-${{ steps.vars.outputs.template_suffix }}"
           WORKSPACE_NAME="workspace-${{ steps.vars.outputs.template_suffix }}"
