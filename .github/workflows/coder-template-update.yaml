@@ -10,70 +10,97 @@ on:
   workflow_dispatch:
 
 jobs:
-  test-and-publish:
+  test:
     runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
     env:
       TEMPLATE_NAME: "kubernetes"
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up Terraform
+      - name: Setup terraform
         uses: hashicorp/setup-terraform@v2
         with:
           terraform_version: latest
 
-      - name: Set up Coder CLI
+      - name: Setup coder
         uses: coder/setup-action@v1
         with:
           access_url: "https://coder.frantchenco.page"
           coder_session_token: ${{ secrets.CODER_SESSION_TOKEN }}
 
-      - name: Terraform lint and format check (PR only)
-        if: github.event_name == 'pull_request'
+      - name: Validation of terraform
         run: |
           terraform fmt -check -diff
           terraform validate
         working-directory: template-kubernetes
 
-      - name: Validate Terraform template
-        if: github.event_name == 'push'
-        run: terraform validate
-        working-directory: template-kubernetes
+      - name: Get branch name and commit SHA
+        id: vars
+        run: |
+          BRANCH_NAME="${{ github.head_ref }}"
+          COMMIT_SHA="$(git rev-parse --short HEAD)"
+          TEMPLATE_SUFFIX="ci-${BRANCH_NAME}-${COMMIT_SHA}"
+          echo "template_suffix=${TEMPLATE_SUFFIX}" >> $GITHUB_OUTPUT
+          echo "commit_sha=${COMMIT_SHA}" >> $GITHUB_OUTPUT
 
-      - name: Get short commit SHA to use as template version name
-        id: name
-        run: echo "version_name=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
-
-      - name: Get latest commit title to use as template version description
+      - name: Get latest commit title
         id: message
         run: echo "pr_title=$(git log --format=%s -n 1 ${{ github.sha }})" >> $GITHUB_OUTPUT
 
-      - name: Push template to Coder
+      - name: Push template to coder with name suffix with ci-branch_name-commit-sha
         run: |
           cd template-kubernetes
-          coder templates push $TEMPLATE_NAME --activate=false --name ${{ steps.name.outputs.version_name }} --message "${{ steps.message.outputs.pr_title }}" --yes
+          TEMPLATE_NAME_WITH_SUFFIX="${TEMPLATE_NAME}-${{ steps.vars.outputs.template_suffix }}"
+          echo "Pushing template: ${TEMPLATE_NAME_WITH_SUFFIX}"
+          coder templates push ${TEMPLATE_NAME_WITH_SUFFIX} --activate=false --name ${{ steps.vars.outputs.commit_sha }} --message "${{ steps.message.outputs.pr_title }}" --yes
 
-      - name: Test template deployment with temporary workspace (PR only)
-        if: github.event_name == 'pull_request'
+      - name: Deploy a workspace with suffix with ci-branch_name-commit-sha
         run: |
-          # Create temporary workspace with commit SHA for testing
-          WORKSPACE_NAME="test-${{ steps.name.outputs.version_name }}"
-          echo "Creating temporary workspace: $WORKSPACE_NAME"
-          coder create -t $TEMPLATE_NAME --template-version ${{ steps.name.outputs.version_name }} $WORKSPACE_NAME --parameter namespace=default --parameter use_kubeconfig=false --parameter cpu=2 --parameter memory=2 --parameter home_disk_size=10 --yes
+          TEMPLATE_NAME_WITH_SUFFIX="${TEMPLATE_NAME}-${{ steps.vars.outputs.template_suffix }}"
+          WORKSPACE_NAME="workspace-${{ steps.vars.outputs.template_suffix }}"
+          echo "Creating workspace: ${WORKSPACE_NAME} with template: ${TEMPLATE_NAME_WITH_SUFFIX}"
+          coder create -t ${TEMPLATE_NAME_WITH_SUFFIX} --template-version ${{ steps.vars.outputs.commit_sha }} ${WORKSPACE_NAME} --parameter namespace=default --parameter use_kubeconfig=false --parameter cpu=2 --parameter memory=2 --parameter home_disk_size=10 --yes
           # Verify workspace was created successfully
           echo "Verifying workspace deployment..."
-          coder show $WORKSPACE_NAME
+          coder show ${WORKSPACE_NAME}
 
-      - name: Cleanup test workspace (PR only)
-        if: always() && github.event_name == 'pull_request'
+      - name: Cleanup the template and workspace
+        if: always()
         run: |
-          WORKSPACE_NAME="test-${{ steps.name.outputs.version_name }}"
-          echo "Cleaning up temporary workspace: $WORKSPACE_NAME"
-          coder delete $WORKSPACE_NAME --yes
+          TEMPLATE_NAME_WITH_SUFFIX="${TEMPLATE_NAME}-${{ steps.vars.outputs.template_suffix }}"
+          WORKSPACE_NAME="workspace-${{ steps.vars.outputs.template_suffix }}"
+          echo "Cleaning up workspace: ${WORKSPACE_NAME}"
+          coder delete ${WORKSPACE_NAME} --yes || echo "Workspace cleanup failed or already deleted"
+          echo "Cleaning up template: ${TEMPLATE_NAME_WITH_SUFFIX}"
+          coder templates delete ${TEMPLATE_NAME_WITH_SUFFIX} --yes || echo "Template cleanup failed or already deleted"
 
-      - name: Deploy new version (main branch only)
-        if: success() && github.event_name == 'push' && github.ref == 'refs/heads/main'
+  publish:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    env:
+      TEMPLATE_NAME: "kubernetes"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup coder
+        uses: coder/setup-action@v1
+        with:
+          access_url: "https://coder.frantchenco.page"
+          coder_session_token: ${{ secrets.CODER_SESSION_TOKEN }}
+
+      - name: Prepare title and version
+        id: prepare
         run: |
-          echo "Promoting template version ${{ steps.name.outputs.version_name }} to production"
-          coder template version promote --template=$TEMPLATE_NAME --template-version=${{ steps.name.outputs.version_name }} --yes
+          VERSION_NAME="$(git rev-parse --short HEAD)"
+          PR_TITLE="$(git log --format=%s -n 1 ${{ github.sha }})"
+          echo "version_name=${VERSION_NAME}" >> $GITHUB_OUTPUT
+          echo "pr_title=${PR_TITLE}" >> $GITHUB_OUTPUT
+
+      - name: Push template to coder with name
+        run: |
+          cd template-kubernetes
+          echo "Pushing template: ${TEMPLATE_NAME} with version: ${{ steps.prepare.outputs.version_name }}"
+          coder templates push ${TEMPLATE_NAME} --activate=true --name ${{ steps.prepare.outputs.version_name }} --message "${{ steps.prepare.outputs.pr_title }}" --yes
