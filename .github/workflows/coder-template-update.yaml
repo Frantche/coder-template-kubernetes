@@ -60,7 +60,14 @@ jobs:
           TEMPLATE_NAME_WITH_SUFFIX="${TEMPLATE_NAME}-${{ steps.vars.outputs.template_suffix }}"
           WORKSPACE_NAME="workspace-${{ steps.vars.outputs.template_suffix }}"
           echo "Creating workspace: ${WORKSPACE_NAME} with template: ${TEMPLATE_NAME_WITH_SUFFIX}"
-          coder create -t ${TEMPLATE_NAME_WITH_SUFFIX} --template-version ${{ steps.vars.outputs.commit_sha }} ${WORKSPACE_NAME} --parameter cpu=2 --parameter memory=2 --parameter home_disk_size=10 --yes
+          coder create \
+            -t ${TEMPLATE_NAME_WITH_SUFFIX} \
+            --template-version ${{ steps.vars.outputs.commit_sha }} \
+            ${WORKSPACE_NAME} \
+            --parameter cpu=2 \
+            --parameter memory=2 \
+            --parameter home_disk_size=10 \
+            --yes
           # Verify workspace was created successfully
           echo "Verifying workspace deployment..."
           coder show ${WORKSPACE_NAME}
