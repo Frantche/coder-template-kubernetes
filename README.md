@@ -30,8 +30,53 @@ A [Coder](https://coder.com/) template for creating cloud development environmen
 │   └── main.tf                          # Terraform configuration for the template
 ├── renovate.json                         # Dependency update configuration
 ├── validate.sh                          # Local validation script
+├── CONTRIBUTING.md                       # Contribution guidelines and setup
 └── README.md                            # This file
 ```
+
+### Key Files Explained
+
+- **`template-kubernetes/main.tf`**: The core Terraform configuration defining the Coder template, including Kubernetes resources, parameters, and workspace configuration
+- **`.github/workflows/coder-template-update.yaml`**: Automated testing and publishing pipeline
+- **`validate.sh`**: Local validation script for checking Terraform formatting and configuration
+- **`renovate.json`**: Configuration for Renovate bot to automatically update dependencies (Terraform providers, Docker images)
+- **`CONTRIBUTING.md`**: Comprehensive guide for contributors including setup, testing, and development workflows
+
+## 🔄 Dependency Management
+
+This repository uses [Renovate](https://renovatebot.com/) for automated dependency updates.
+
+### Renovate Configuration
+
+The `renovate.json` file configures:
+- **Auto-merge**: Automatically merges updates when all checks pass
+- **Squash strategy**: Uses squash commits for cleaner history
+- **Auto-merge comment**: Adds clear indication of automated merges
+
+### Managed Dependencies
+
+Renovate automatically monitors and updates:
+
+1. **Terraform Providers**: 
+   - Coder provider (`coder/coder`)
+   - Kubernetes provider (`hashicorp/kubernetes`)
+
+2. **Docker Images**:
+   - Development image: `ghcr.io/frantche/coder-full`
+   - Updates tracked via special comment in `main.tf`
+
+3. **GitHub Actions**:
+   - Action versions in workflow files
+   - Ensures security and feature updates
+
+### Update Process
+
+1. Renovate creates PRs for available updates
+2. GitHub Actions automatically test the changes
+3. If tests pass, changes are auto-merged
+4. New template version is published to Coder
+
+This ensures dependencies stay current while maintaining stability through automated testing.
 
 ## 🛠️ Template Features
 
@@ -53,21 +98,96 @@ The template supports several parameters that can be configured when creating wo
 
 ## 🏃‍♂️ GitHub Actions Workflow
 
-This repository includes automated CI/CD with the following stages:
+This repository includes a sophisticated CI/CD pipeline that automatically tests and publishes the Coder template.
 
-### Pull Request Testing (`test` job)
-- **Terraform Validation**: Checks formatting and validates configuration
-- **Template Testing**: Pushes a temporary template to Coder instance
-- **Workspace Deployment**: Creates and verifies a test workspace
-- **Cleanup**: Removes test resources after completion
+### Workflow Overview
 
-### Main Branch Publishing (`publish` job)  
-- **Template Publishing**: Pushes the template to production Coder instance
-- **Version Management**: Uses commit SHA for versioning
-- **Activation**: Automatically activates the new template version
+The workflow is defined in `.github/workflows/coder-template-update.yaml` and consists of two main jobs:
 
-The workflow requires these secrets:
-- `CODER_SESSION_TOKEN`: Authentication token for Coder instance
+#### 🧪 Pull Request Testing (`test` job)
+
+**Trigger**: Pull requests to `main` branch
+
+**Steps**:
+1. **Environment Setup**
+   - Checkout repository code
+   - Install Terraform (latest version)
+   - Setup Coder CLI with authentication
+
+2. **Terraform Validation**
+   ```bash
+   terraform init
+   terraform fmt -check -diff
+   terraform validate
+   ```
+
+3. **Live Template Testing**
+   - Pushes template with unique suffix: `kubernetes-ci-{commit-sha}`
+   - Uses commit SHA as version name
+   - Deployed with `activate=false` to avoid affecting production
+
+4. **Workspace Deployment Test**
+   - Creates test workspace: `workspace-ci-{commit-sha}`
+   - Configures with standard parameters (2 CPU, 2GB RAM, 10GB disk)
+   - Verifies successful deployment with `coder show`
+
+5. **Automatic Cleanup**
+   - Deletes test workspace and template
+   - Runs even if previous steps fail (`if: always()`)
+
+#### 🚀 Production Publishing (`publish` job)
+
+**Trigger**: Pushes to `main` branch (after PR merge)
+
+**Steps**:
+1. **Environment Setup** (same as test job)
+2. **Template Publishing**
+   - Pushes template with production name: `kubernetes`
+   - Uses commit SHA as version identifier  
+   - Sets `activate=true` to make it the default version
+   - Includes commit message as version description
+
+### Configuration
+
+#### Required Secrets
+- `CODER_SESSION_TOKEN`: Authentication token for your Coder instance
+  - Generate via: `coder tokens create --lifetime 87600h`
+  - Add to repository secrets in GitHub
+
+#### Environment Variables
+- `TEMPLATE_NAME`: Set to "kubernetes" (the production template name)
+- Coder instance URL: Currently set to `https://coder.frantchenco.page`
+
+#### Default Parameters
+The workflow deploys test workspaces with these parameters:
+- `namespace`: `coder-workspace`
+- `cpu`: `2`
+- `memory`: `2`  
+- `home_disk_size`: `10`
+
+### Workflow Benefits
+
+- ✅ **Automated Testing**: Every PR is tested with real Coder deployment
+- ✅ **Safe Deployment**: Test resources are isolated and automatically cleaned up
+- ✅ **Version Control**: Each deployment tagged with commit SHA
+- ✅ **Zero Downtime**: New versions published without affecting existing workspaces
+- ✅ **Rollback Ready**: Previous versions remain available in Coder
+
+### Monitoring Workflow
+
+You can monitor the workflow by:
+1. **GitHub Actions Tab**: View live logs and status
+2. **Coder Dashboard**: Check for test templates/workspaces during PR testing
+3. **Template Versions**: Verify new versions appear after merge
+
+### Customizing the Workflow
+
+To adapt this workflow for your environment:
+
+1. **Update Coder URL**: Change `access_url` in the workflow file
+2. **Modify Parameters**: Adjust default workspace parameters as needed
+3. **Change Namespace**: Update the `namespace` variable
+4. **Add Validation**: Include additional validation steps if required
 
 ## 🧪 Testing
 
