@@ -32,6 +32,7 @@ jobs:
 
       - name: Validation of terraform
         run: |
+          terraform init
           terraform fmt -check -diff
           terraform validate
         working-directory: template-kubernetes
