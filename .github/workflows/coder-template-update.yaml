@@ -1,51 +1,123 @@
-name: Update Coder Template
+name: Test and Publish Coder Template
 
 on:
-  pull_request:
-    branches:
-      - main
   push:
     branches:
       - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
 
 jobs:
-  update:
+  test:
     runs-on: ubuntu-latest
-    permissions:
-      # only needed if your action pushes commits, etc.
-      contents: write
-
+    if: github.event_name == 'pull_request'
+    env:
+      TEMPLATE_NAME: "kubernetes"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Get latest commit hash
-        id: latest_commit
-        run: echo "hash=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
-
-      - name: Get commit title
-        id: commit_title
-        run: echo "title=$(git log -1 --pretty=%s)" >> $GITHUB_OUTPUT
-
-      - name: Dry‑run update on PR
-        if: github.event_name == 'pull_request'
-        uses: matifali/update-coder-template@v3
+      - name: Setup terraform
+        uses: hashicorp/setup-terraform@v2
         with:
-          id: kubernetes
-          dir: template-kubernetes
-          url: https://coder.frantchenco.page
-          name: ${{ steps.latest_commit.outputs.hash }}
-          message: ${{ steps.commit_title.outputs.title }}
-          coder_session_token: ${{ secrets.CODER_SESSION_TOKEN }}
-          dry_run: true
+          terraform_version: latest
 
-      - name: Update Coder Template on main
-        if: github.event_name == 'push'
-        uses: matifali/update-coder-template@v3
+      - name: Setup coder
+        uses: coder/setup-action@v1
         with:
-          id: kubernetes
-          dir: template-kubernetes
-          url: https://coder.frantchenco.page
-          name: ${{ steps.latest_commit.outputs.hash }}
-          message: ${{ steps.commit_title.outputs.title }}
+          access_url: "https://coder.frantchenco.page"
           coder_session_token: ${{ secrets.CODER_SESSION_TOKEN }}
+
+      - name: Validation of terraform
+        run: |
+          terraform init
+          terraform fmt -check -diff
+          terraform validate
+        working-directory: template-kubernetes
+
+      - name: Get commit SHA
+        id: vars
+        run: |
+          COMMIT_SHA="$(git rev-parse --short HEAD)"
+          TEMPLATE_SUFFIX="ci-${COMMIT_SHA}"
+          echo "template_suffix=${TEMPLATE_SUFFIX}" >> $GITHUB_OUTPUT
+          echo "commit_sha=${COMMIT_SHA}" >> $GITHUB_OUTPUT
+
+      - name: Get latest commit title
+        id: message
+        run: echo "pr_title=$(git log --format=%s -n 1 ${{ github.sha }})" >> $GITHUB_OUTPUT
+
+      - name: Push template to coder with name suffix with ci-short_commit_sha
+        run: |
+          TEMPLATE_NAME_WITH_SUFFIX="${TEMPLATE_NAME}-${{ steps.vars.outputs.template_suffix }}"
+          echo "Pushing template: ${TEMPLATE_NAME_WITH_SUFFIX}"
+          coder templates push ${TEMPLATE_NAME_WITH_SUFFIX} \
+            -d template-kubernetes \
+            --activate=false \
+            --name ${{ steps.vars.outputs.commit_sha }} \
+            --message "${{ steps.message.outputs.pr_title }}" \
+            --variable namespace=coder-workspace \
+            --yes
+
+      - name: Deploy a workspace with suffix with ci-short_commit_sha
+        run: |
+          TEMPLATE_NAME_WITH_SUFFIX="${TEMPLATE_NAME}-${{ steps.vars.outputs.template_suffix }}"
+          WORKSPACE_NAME="workspace-${{ steps.vars.outputs.template_suffix }}"
+          echo "Creating workspace: ${WORKSPACE_NAME} with template: ${TEMPLATE_NAME_WITH_SUFFIX}"
+          coder create \
+            -t ${TEMPLATE_NAME_WITH_SUFFIX} \
+            --template-version ${{ steps.vars.outputs.commit_sha }} \
+            ${WORKSPACE_NAME} \
+            --parameter cpu=2 \
+            --parameter memory=2 \
+            --parameter home_disk_size=10 \
+            --yes
+          # Verify workspace was created successfully
+          echo "Verifying workspace deployment..."
+          coder show ${WORKSPACE_NAME}
+
+      - name: Cleanup the template and workspace
+        if: always()
+        run: |
+          TEMPLATE_NAME_WITH_SUFFIX="${TEMPLATE_NAME}-${{ steps.vars.outputs.template_suffix }}"
+          WORKSPACE_NAME="workspace-${{ steps.vars.outputs.template_suffix }}"
+          echo "Cleaning up workspace: ${WORKSPACE_NAME}"
+          coder delete ${WORKSPACE_NAME} --yes || echo "Workspace cleanup failed or already deleted"
+          echo "Cleaning up template: ${TEMPLATE_NAME_WITH_SUFFIX}"
+          coder templates delete ${TEMPLATE_NAME_WITH_SUFFIX} --yes || echo "Template cleanup failed or already deleted"
+
+  publish:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    env:
+      TEMPLATE_NAME: "kubernetes"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup coder
+        uses: coder/setup-action@v1
+        with:
+          access_url: "https://coder.frantchenco.page"
+          coder_session_token: ${{ secrets.CODER_SESSION_TOKEN }}
+
+      - name: Prepare title and version
+        id: prepare
+        run: |
+          VERSION_NAME="$(git rev-parse --short HEAD)"
+          PR_TITLE="$(git log --format=%s -n 1 ${{ github.sha }})"
+          echo "version_name=${VERSION_NAME}" >> $GITHUB_OUTPUT
+          echo "pr_title=${PR_TITLE}" >> $GITHUB_OUTPUT
+
+      - name: Push template to coder with name
+        run: |
+          echo "Pushing template: ${TEMPLATE_NAME} with version: ${{ steps.prepare.outputs.version_name }}"
+          coder templates push ${TEMPLATE_NAME} \
+            -d template-kubernetes \
+            --activate=true \
+            --name ${{ steps.prepare.outputs.version_name }} \
+            --message "${{ steps.prepare.outputs.pr_title }}" \
+            --variable namespace=coder-workspace \
+            --yes
