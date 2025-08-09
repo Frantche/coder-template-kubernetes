@@ -53,7 +53,13 @@ jobs:
         run: |
           TEMPLATE_NAME_WITH_SUFFIX="${TEMPLATE_NAME}-${{ steps.vars.outputs.template_suffix }}"
           echo "Pushing template: ${TEMPLATE_NAME_WITH_SUFFIX}"
-          coder templates push ${TEMPLATE_NAME_WITH_SUFFIX} -d template-kubernetes --activate=false --name ${{ steps.vars.outputs.commit_sha }} --message "${{ steps.message.outputs.pr_title }}" --variable namespace=coder-workspace --yes
+          coder templates push ${TEMPLATE_NAME_WITH_SUFFIX} \
+            -d template-kubernetes \
+            --activate=false \
+            --name ${{ steps.vars.outputs.commit_sha }} \
+            --message "${{ steps.message.outputs.pr_title }}" \
+            --variable namespace=coder-workspace \
+            --yes
 
       - name: Deploy a workspace with suffix with ci-short_commit_sha
         run: |
