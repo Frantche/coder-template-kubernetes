@@ -108,4 +108,10 @@ jobs:
       - name: Push template to coder with name
         run: |
           echo "Pushing template: ${TEMPLATE_NAME} with version: ${{ steps.prepare.outputs.version_name }}"
-          coder templates push ${TEMPLATE_NAME} -d template-kubernetes --activate=true --name ${{ steps.prepare.outputs.version_name }} --message "${{ steps.prepare.outputs.pr_title }}" --variable namespace=coder-workspace --yes
+          coder templates push ${TEMPLATE_NAME} \
+            -d template-kubernetes \
+            --activate=true \
+            --name ${{ steps.prepare.outputs.version_name }} \
+            --message "${{ steps.prepare.outputs.pr_title }}" \
+            --variable namespace=coder-workspace \
+            --yes
