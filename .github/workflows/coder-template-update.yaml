@@ -17,7 +17,7 @@ jobs:
       TEMPLATE_NAME: "kubernetes"
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
 
       - name: Setup terraform
         uses: hashicorp/setup-terraform@v3
@@ -95,7 +95,7 @@ jobs:
       TEMPLATE_NAME: "kubernetes"
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
 
       - name: Setup coder
         uses: coder/setup-action@v1
