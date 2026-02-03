@@ -251,7 +251,7 @@ resource "kubernetes_pod" "main" {
     container {
       name = "dev"
       # renovate: datasource=docker depName=ghcr.io/frantche/coder-full versioning=docker
-      image             = "ghcr.io/frantche/coder-full:0.5.84"
+      image             = "ghcr.io/frantche/coder-full:0.5.85"
       image_pull_policy = "Always"
       command           = ["sh", "-c", coder_agent.main.init_script]
       security_context {
