@@ -36,10 +36,18 @@ variable "namespace" {
 data "coder_parameter" "cpu" {
   name         = "cpu"
   display_name = "CPU"
-  description  = "The number of CPU cores"
-  default      = "2"
+  description  = "The number of CPU cores (0 = no request/limit)"
+  default      = "0"
   icon         = "/icon/memory.svg"
   mutable      = true
+  option {
+    name  = "No limit"
+    value = "0"
+  }
+  option {
+    name  = "1 Core"
+    value = "1"
+  }
   option {
     name  = "2 Cores"
     value = "2"
@@ -61,10 +69,14 @@ data "coder_parameter" "cpu" {
 data "coder_parameter" "memory" {
   name         = "memory"
   display_name = "Memory"
-  description  = "The amount of memory in GB"
-  default      = "2"
+  description  = "The amount of memory in GB (0 = no request/limit)"
+  default      = "0"
   icon         = "/icon/memory.svg"
   mutable      = true
+  option {
+    name  = "No limit"
+    value = "0"
+  }
   option {
     name  = "2 GB"
     value = "2"
@@ -74,12 +86,16 @@ data "coder_parameter" "memory" {
     value = "4"
   }
   option {
-    name  = "6 GB"
-    value = "6"
-  }
-  option {
     name  = "8 GB"
     value = "8"
+  }
+  option {
+    name  = "16 GB"
+    value = "16"
+  }
+  option {
+    name  = "32 GB"
+    value = "32"
   }
 }
 
@@ -90,11 +106,16 @@ data "coder_parameter" "home_disk_size" {
   default      = "10"
   type         = "number"
   icon         = "/emojis/1f4be.png"
-  mutable      = false
+  mutable      = true
   validation {
     min = 1
     max = 99999
   }
+}
+
+locals {
+  cpu_request    = data.coder_parameter.cpu.value == "0" ? null : data.coder_parameter.cpu.value
+  memory_request = data.coder_parameter.memory.value == "0" ? null : "${data.coder_parameter.memory.value}Gi"
 }
 
 provider "kubernetes" {
@@ -110,6 +131,12 @@ resource "coder_agent" "main" {
   arch           = "amd64"
   startup_script = <<-EOT
     set -e
+
+    # Start docker daemon
+    sudo service docker start
+
+    # Import extra CA certificates if the secret "extra-ca" is mounted.
+    sudo update-ca-certificates
 
     # Install the latest code-server.
     # Append "--version x.x.x" to install a specific version of code-server.
@@ -262,16 +289,22 @@ resource "kubernetes_pod" "main" {
         name  = "CODER_AGENT_TOKEN"
         value = coder_agent.main.token
       }
-      //resources {
-      // requests = {
-      //   "cpu"    = "${data.coder_parameter.cpu.value}"
-      //  "memory" = "${data.coder_parameter.memory.value}Gi"
-      //}
-      //limits = {
-      //  "cpu"    = "${data.coder_parameter.cpu.value}"
-      //  "memory" = "${data.coder_parameter.memory.value}Gi"
-      //}
-      //}
+      # Inject http_proxy / https_proxy / no_proxy from the "http-proxy" ConfigMap
+      # if it exists in the namespace. The optional flag prevents pod scheduling
+      # failures when the ConfigMap is absent.
+      env_from {
+        config_map_ref {
+          name     = "http-proxy"
+          optional = true
+        }
+      }
+      dynamic "resources" {
+        for_each = (local.cpu_request != null || local.memory_request != null) ? [1] : []
+        content {
+          requests = { for k, v in { cpu = local.cpu_request, memory = local.memory_request } : k => v if v != null }
+          limits   = { for k, v in { cpu = local.cpu_request, memory = local.memory_request } : k => v if v != null }
+        }
+      }
       volume_mount {
         mount_path = "/home/coder"
         name       = "home"
@@ -281,6 +314,17 @@ resource "kubernetes_pod" "main" {
         mount_path = "/var/lib/docker"
         name       = "docker"
         read_only  = false
+      }
+      volume_mount {
+        mount_path = "/usr/local/share/ca-certificates"
+        name       = "extra-ca"
+        read_only  = true
+      }
+      # Mount the "docker-daemon" ConfigMap as /etc/docker/daemon.json if it exists.
+      volume_mount {
+        mount_path = "/etc/docker"
+        name       = "docker-daemon"
+        read_only  = true
       }
     }
 
@@ -295,6 +339,22 @@ resource "kubernetes_pod" "main" {
     volume {
       name = "docker"
       empty_dir {}
+    }
+
+    volume {
+      name = "extra-ca"
+      secret {
+        secret_name = "extra-ca"
+        optional    = true
+      }
+    }
+
+    volume {
+      name = "docker-daemon"
+      config_map {
+        name     = "docker-daemon"
+        optional = true
+      }
     }
 
     affinity {
