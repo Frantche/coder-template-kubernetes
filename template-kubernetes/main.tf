@@ -220,7 +220,37 @@ resource "coder_app" "code-server" {
   }
 }
 
-resource "kubernetes_persistent_volume_claim" "home" {
+resource "kubernetes_persistent_volume_claim_v1" "docker" {
+  metadata {
+    name      = "coder-${lower(data.coder_workspace_owner.me.name)}-${lower(data.coder_workspace.me.name)}-docker"
+    namespace = var.namespace
+    labels = {
+      "app.kubernetes.io/name"     = "coder-pvc"
+      "app.kubernetes.io/instance" = "coder-pvc-${lower(data.coder_workspace_owner.me.name)}-${lower(data.coder_workspace.me.name)}"
+      "app.kubernetes.io/part-of"  = "coder"
+      // Coder specific labels.
+      "com.coder.resource"       = "true"
+      "com.coder.workspace.id"   = data.coder_workspace.me.id
+      "com.coder.workspace.name" = data.coder_workspace.me.name
+      "com.coder.user.id"        = data.coder_workspace_owner.me.id
+      "com.coder.user.username"  = data.coder_workspace_owner.me.name
+    }
+    annotations = {
+      "com.coder.user.email" = data.coder_workspace_owner.me.email
+    }
+  }
+  wait_until_bound = false
+  spec {
+    access_modes = ["ReadWriteOnce"]
+    resources {
+      requests = {
+        storage = "50Gi"
+      }
+    }
+  }
+}
+
+resource "kubernetes_persistent_volume_claim_v1" "home" {
   metadata {
     name      = "coder-${lower(data.coder_workspace_owner.me.name)}-${lower(data.coder_workspace.me.name)}-home"
     namespace = var.namespace
@@ -250,7 +280,7 @@ resource "kubernetes_persistent_volume_claim" "home" {
   }
 }
 
-resource "kubernetes_pod" "main" {
+resource "kubernetes_pod_v1" "main" {
   count = data.coder_workspace.me.start_count
   metadata {
     name      = "coder-${lower(data.coder_workspace_owner.me.name)}-${lower(data.coder_workspace.me.name)}"
@@ -281,6 +311,13 @@ resource "kubernetes_pod" "main" {
       image             = "ghcr.io/frantche/coder-full:0.8.2"
       image_pull_policy = "Always"
       command           = ["sh", "-c", coder_agent.main.init_script]
+      lifecycle {
+        pre_stop {
+          exec {
+            command = ["sudo", "service", "docker", "stop"]
+          }
+        }
+      }
       security_context {
         run_as_user = "1000"
         privileged  = "true"
@@ -331,14 +368,17 @@ resource "kubernetes_pod" "main" {
     volume {
       name = "home"
       persistent_volume_claim {
-        claim_name = kubernetes_persistent_volume_claim.home.metadata.0.name
+        claim_name = kubernetes_persistent_volume_claim_v1.home.metadata.0.name
         read_only  = false
       }
     }
 
     volume {
       name = "docker"
-      empty_dir {}
+      persistent_volume_claim {
+        claim_name = kubernetes_persistent_volume_claim_v1.docker.metadata.0.name
+        read_only  = false
+      }
     }
 
     volume {
@@ -376,5 +416,9 @@ resource "kubernetes_pod" "main" {
         }
       }
     }
+  }
+
+  timeouts {
+    create = "30m"
   }
 }
