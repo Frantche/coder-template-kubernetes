@@ -397,25 +397,25 @@ resource "kubernetes_pod_v1" "main" {
       }
     }
 
-    affinity {
-      pod_anti_affinity {
-        // This affinity attempts to spread out all workspace pods evenly across
-        // nodes.
-        preferred_during_scheduling_ignored_during_execution {
-          weight = 1
-          pod_affinity_term {
-            topology_key = "kubernetes.io/hostname"
-            label_selector {
-              match_expressions {
-                key      = "app.kubernetes.io/name"
-                operator = "In"
-                values   = ["coder-workspace"]
-              }
-            }
-          }
-        }
-      }
-    }
+    # affinity {
+    #   pod_anti_affinity {
+    #     // This affinity attempts to spread out all workspace pods evenly across
+    #     // nodes.
+    #     preferred_during_scheduling_ignored_during_execution {
+    #       weight = 1
+    #       pod_affinity_term {
+    #         topology_key = "kubernetes.io/hostname"
+    #         label_selector {
+    #           match_expressions {
+    #             key      = "app.kubernetes.io/name"
+    #             operator = "In"
+    #             values   = ["coder-workspace"]
+    #           }
+    #         }
+    #       }
+    #     }
+    #   }
+    # }
   }
 
   timeouts {
