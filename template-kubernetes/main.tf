@@ -304,6 +304,7 @@ resource "kubernetes_pod_v1" "main" {
     security_context {
       run_as_user = "1000"
       fs_group    = "1000"
+      fs_group_change_policy =  "OnRootMismatch"
     }
     container {
       name = "dev"
