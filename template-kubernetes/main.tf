@@ -133,6 +133,7 @@ resource "coder_agent" "main" {
     set -e
 
     # Start docker daemon
+    sudo sed -i 's/ulimit -Hn/# ulimit -Hn/g' /etc/init.d/docker;
     sudo service docker start
 
     # Import extra CA certificates if the secret "extra-ca" is mounted.
