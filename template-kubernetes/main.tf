@@ -133,6 +133,7 @@ resource "coder_agent" "main" {
     set -e
 
     # Start docker daemon
+    sudo sed -i 's/ulimit -Hn/# ulimit -Hn/g' /etc/init.d/docker;
     sudo service docker start
 
     # Import extra CA certificates if the secret "extra-ca" is mounted.
@@ -302,9 +303,9 @@ resource "kubernetes_pod_v1" "main" {
   }
   spec {
     security_context {
-      run_as_user = "1000"
-      fs_group    = "1000"
-      fs_group_change_policy =  "OnRootMismatch"
+      run_as_user            = "1000"
+      fs_group               = "1000"
+      fs_group_change_policy = "OnRootMismatch"
     }
     container {
       name = "dev"
