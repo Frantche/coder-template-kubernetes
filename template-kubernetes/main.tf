@@ -310,7 +310,7 @@ resource "kubernetes_pod_v1" "main" {
     container {
       name = "dev"
       # renovate: datasource=docker depName=ghcr.io/frantche/coder-full versioning=docker
-      image             = "ghcr.io/frantche/coder-full:0.8.135"
+      image             = "ghcr.io/frantche/coder-full:0.8.136"
       image_pull_policy = "Always"
       command           = ["sh", "-c", coder_agent.main.init_script]
       lifecycle {
